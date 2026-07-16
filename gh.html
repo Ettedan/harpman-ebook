@@ -618,13 +618,32 @@ stage.addEventListener('touchend', e => {
 }, { passive: true });
 
 // Mouse wheel / trackpad scroll
-let wheelCooldown = false;
+// Accumulate delta so one deliberate scroll = exactly one page turn.
+// While animating, drain the accumulator so momentum doesn't queue a second turn.
+let wheelAccum = 0;
+let wheelResetTimer = null;
+const WHEEL_THRESHOLD = 80;
+
 document.addEventListener('wheel', e => {
   e.preventDefault();
-  if (busy || wheelCooldown) return;
-  go(e.deltaY >= 0 ? 1 : -1);
-  wheelCooldown = true;
-  setTimeout(() => { wheelCooldown = false; }, DURATION + 100);
+  if (busy) {
+    wheelAccum = 0;  // drain momentum events while page is animating
+    return;
+  }
+  // Normalise across deltaMode (pixel / line / page)
+  const delta = e.deltaMode === 1 ? e.deltaY * 30
+              : e.deltaMode === 2 ? e.deltaY * 300
+              : e.deltaY;
+  wheelAccum += delta;
+  // Reset accumulator if the user pauses between gestures
+  clearTimeout(wheelResetTimer);
+  wheelResetTimer = setTimeout(() => { wheelAccum = 0; }, 200);
+  if (Math.abs(wheelAccum) >= WHEEL_THRESHOLD) {
+    const dir = wheelAccum > 0 ? 1 : -1;
+    wheelAccum = 0;
+    clearTimeout(wheelResetTimer);
+    go(dir);
+  }
 }, { passive: false });
 
 // Buttons
