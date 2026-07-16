@@ -618,30 +618,40 @@ stage.addEventListener('touchend', e => {
 }, { passive: true });
 
 // Mouse wheel / trackpad scroll
-// Accumulate delta so one deliberate scroll = exactly one page turn.
-// While animating, drain the accumulator so momentum doesn't queue a second turn.
-let wheelAccum = 0;
-let wheelResetTimer = null;
-const WHEEL_THRESHOLD = 80;
+// Problem: momentum events keep firing 500–800ms after the gesture ends,
+// so the accumulator (reset to 0 during animation) fills up again and
+// triggers a second page turn.
+// Fix: after each page turn, block ALL wheel input until drainUntil —
+// a timestamp covering the animation (320ms) + momentum tail (480ms).
+let wheelAccum    = 0;
+let wheelIdleTimer = null;
+let drainUntil    = 0;
+const THRESHOLD   = 80;   // px to accumulate before turning
+const DRAIN_MS    = 800;  // ms to ignore events after each turn
 
 document.addEventListener('wheel', e => {
   e.preventDefault();
-  if (busy) {
-    wheelAccum = 0;  // drain momentum events while page is animating
-    return;
-  }
-  // Normalise across deltaMode (pixel / line / page)
+  const now = performance.now();
+
+  // Hard block for the full drain window
+  if (now < drainUntil) { wheelAccum = 0; return; }
+
+  // Normalise deltaMode (line / page → px)
   const delta = e.deltaMode === 1 ? e.deltaY * 30
               : e.deltaMode === 2 ? e.deltaY * 300
               : e.deltaY;
+
   wheelAccum += delta;
-  // Reset accumulator if the user pauses between gestures
-  clearTimeout(wheelResetTimer);
-  wheelResetTimer = setTimeout(() => { wheelAccum = 0; }, 200);
-  if (Math.abs(wheelAccum) >= WHEEL_THRESHOLD) {
+
+  // Reset between separate gestures (idle > 250ms)
+  clearTimeout(wheelIdleTimer);
+  wheelIdleTimer = setTimeout(() => { wheelAccum = 0; }, 250);
+
+  if (Math.abs(wheelAccum) >= THRESHOLD && !busy) {
     const dir = wheelAccum > 0 ? 1 : -1;
     wheelAccum = 0;
-    clearTimeout(wheelResetTimer);
+    clearTimeout(wheelIdleTimer);
+    drainUntil = now + DRAIN_MS;
     go(dir);
   }
 }, { passive: false });
